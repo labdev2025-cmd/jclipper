@@ -64,12 +64,15 @@ import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowFocusListener;
+import java.awt.geom.RoundRectangle2D;
 import java.util.List;
 
 // ======= Config gerais =======
@@ -125,6 +128,7 @@ private static final int TOOLTIP_FONT_PT = 13; // fonte do tooltip <pre>
  * Altura (px) de cada célula (linha) da lista.
  */
 private static final int LIST_CELL_HEIGHT = 24; // altura da linha da lista
+private static final int WINDOW_ARC = 16; // leve arredondamento
 // ================================================
 
 /**
@@ -447,6 +451,18 @@ static class PopupUI {
         dialog.setAlwaysOnTop(true);
         dialog.setModalityType(Dialog.ModalityType.MODELESS);
         dialog.getRootPane().putClientProperty("JRootPane.titleBarBackground", UIManager.getColor("Panel.background"));
+        dialog.setBackground(new Color(0, 0, 0, 0));
+        dialog.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentShown(ComponentEvent e) {
+                applyWindowShape();
+            }
+
+            @Override
+            public void componentResized(ComponentEvent e) {
+                applyWindowShape();
+            }
+        });
 
         JPanel content = new JPanel(new BorderLayout(0, 8));
         content.setBorder(new EmptyBorder(14, 14, 14, 14));
@@ -544,6 +560,7 @@ static class PopupUI {
 
         dialog.setContentPane(content);
         dialog.setSize(WINDOW_WIDTH, WINDOW_HEIGHT); // janela maior
+        applyWindowShape();
     }
 
     /**
@@ -760,6 +777,14 @@ static class PopupUI {
             setOpaque(true);
             return this;
         }
+    }
+
+    private void applyWindowShape() {
+        int w = dialog.getWidth();
+        int h = dialog.getHeight();
+        if (w <= 0 || h <= 0) return;
+        Shape shape = new RoundRectangle2D.Double(0, 0, w, h, WINDOW_ARC, WINDOW_ARC);
+        dialog.setShape(shape);
     }
 }
 
