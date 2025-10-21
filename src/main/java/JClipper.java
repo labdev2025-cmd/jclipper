@@ -46,7 +46,7 @@
  *
  *  Requisitos
  *  ----------
- *  - Java 8+ (ou superior, conforme APIs usadas).
+ *  - Java 25+ (ou superior, conforme APIs usadas).
  *  - FlatLaf (FlatDarkLaf e FlatClientProperties).
  * =============================================================================
  */
