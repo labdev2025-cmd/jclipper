@@ -36,22 +36,18 @@
  *
  *  Execução (exemplos)
  *  -------------------
+ * Compile com mvn clean package
  *  - Execução normal (abre a instância principal se não houver outra):
- *      java ... Main
+ *      java -jar target/jclipper.jar
  *  - Alternar popup (se já houver instância, apenas alterna visibilidade):
- *      java ... Main --toggle
+ *      java -jar target/jclipper.jar --toggle
  *  - Forçar mostrar/ocultar via IPC (se servidor estiver rodando):
- *      java ... Main --show
+ *      java -jar target/jclipper.jar --show
  *
  *  Requisitos
  *  ----------
  *  - Java 8+ (ou superior, conforme APIs usadas).
  *  - FlatLaf (FlatDarkLaf e FlatClientProperties).
- *
- *  Observação
- *  ----------
- *  SOMENTE comentários e Javadoc foram adicionados; nenhuma lógica ou assinatura
- *  de método/campo foi alterada.
  * =============================================================================
  */
 
