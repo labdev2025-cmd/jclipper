@@ -192,11 +192,14 @@ void main(String[] args) {
 private static void setupLookAndFeel() {
     FlatDarkLaf.setup();
 
-    // Define a fonte padrão global baseada na fonte atual das labels
-    Font base = UIManager.getFont("Label.font");
+    // Registrar JetBrains Mono a partir do classpath (src/main/resources)
+    registerJetBrainsMono();
+
+    // Definir JetBrains Mono como fonte-base da UI (com fallbacks seguros)
+    Font base = tryFamily("JetBrains Mono", Font.PLAIN, FONT_BASE_PT);
+    if (base == null) base = UIManager.getFont("Label.font");
     if (base == null) base = new Font("SansSerif", Font.PLAIN, FONT_BASE_PT);
-    FontUIResource def = new FontUIResource(base.deriveFont((float) FONT_BASE_PT));
-    UIManager.put("defaultFont", def);
+    UIManager.put("defaultFont", new FontUIResource(base.deriveFont((float) FONT_BASE_PT)));
 
     // Estética estilo IntelliJ / FlatLaf
     System.setProperty("flatlaf.useWindowDecorations", "true");
@@ -399,13 +402,13 @@ static class ClipboardHistory {
      *   <li>{@link #text}: conteúdo textual exatamente como estava no clipboard.</li>
      * </ul>
      */
-        record Entry(long ts, String text) {
+    record Entry(long ts, String text) {
 
         @Override
-            public String toString() {
-                return text;
-            }
+        public String toString() {
+            return text;
         }
+    }
 }
 
 // ===== UI do Popup =====
@@ -429,6 +432,10 @@ static class PopupUI {
     private final JTextField searchField;
     private final JList<ClipboardHistory.Entry> list;
     private final DefaultListModel<ClipboardHistory.Entry> listModel;
+
+    // [ADD] elementos de UI para "nenhuma correspondencia"
+    private final JLabel noMatchLabel;
+    private final Color defaultSearchFg;
 
     /**
      * Constrói toda a hierarquia de componentes do popup e configura
@@ -458,10 +465,17 @@ static class PopupUI {
         searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "Pesquisar");
         searchField.setFont(searchField.getFont().deriveFont((float) FONT_BASE_PT));
 
+        // [ADD] cor original e label "nenhuma correspondencia"
+        defaultSearchFg = searchField.getForeground();
+        noMatchLabel = new JLabel("nenhuma correspondencia");
+        noMatchLabel.setForeground(new Color(0xE53935));
+        noMatchLabel.setVisible(false);
+
         JPanel top = new JPanel(new BorderLayout(0, 6));
         top.setOpaque(false);
         top.add(header, BorderLayout.NORTH);
         top.add(searchField, BorderLayout.CENTER);
+        top.add(noMatchLabel, BorderLayout.SOUTH); // [ADD] mensagem sob a busca
         content.add(top, BorderLayout.NORTH);
 
         // ===== Lista (linha única por item + scrollbar horizontal) =====
@@ -576,6 +590,25 @@ static class PopupUI {
         List<ClipboardHistory.Entry> data = history.latestMatching(q, MAX_VISIBLE);
         listModel.clear();
         for (ClipboardHistory.Entry e : data) listModel.addElement(e);
+
+        // atualiza UI de "nenhuma correspondencia"
+        applyNoMatchUI(q, listModel.getSize());
+    }
+
+    // controla texto/borda do campo de busca e label de aviso
+    private void applyNoMatchUI(String query, int resultCount) {
+        boolean hasQuery = query != null && !query.trim().isEmpty();
+        boolean noMatch = hasQuery && resultCount == 0;
+
+        if (noMatch) {
+            searchField.setForeground(new Color(0xE53935));
+            searchField.putClientProperty("JComponent.outline", "error"); // FlatLaf outline
+            noMatchLabel.setVisible(true);
+        } else {
+            searchField.setForeground(defaultSearchFg);
+            searchField.putClientProperty("JComponent.outline", null);
+            noMatchLabel.setVisible(false);
+        }
     }
 
     /**
@@ -673,8 +706,8 @@ static class PopupUI {
         static String toHtmlTooltip(String s) {
             if (s == null) return null;
             String esc = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-            return "<html><div style='font-family:monospace; font-size:" + TOOLTIP_FONT_PT + "px; white-space:pre'>"
-                    + esc + "</div></html>";
+            return "<html><div style='font-family:\"JetBrains Mono\",monospace; font-size:" + TOOLTIP_FONT_PT + "px; white-space:pre'>"
+                    + esc + "</div></html>"; // prefere JetBrains Mono
         }
     }
 
@@ -694,7 +727,9 @@ static class PopupUI {
             setBorder(new EmptyBorder(4, 10, 4, 10));
             lbl = new JLabel();
             // monoespaçado ajuda a enxergar indentação
-            lbl.setFont(new Font(Font.MONOSPACED, Font.PLAIN, FONT_MONO_PT));
+            Font mono = tryFamily("JetBrains Mono", Font.PLAIN, FONT_MONO_PT);
+            if (mono == null) mono = new Font(Font.MONOSPACED, Font.PLAIN, FONT_MONO_PT);
+            lbl.setFont(mono); // usa JetBrains Mono se registrada
             lbl.setOpaque(false);
             add(lbl, BorderLayout.CENTER);
         }
@@ -730,4 +765,56 @@ static class PopupUI {
             return this;
         }
     }
+}
+
+// ===== Utilitários para carregar/registrar fontes do classpath =====
+
+/**
+ * Carrega uma fonte .ttf do classpath (src/main/resources). Retorna null se falhar.
+ */
+private static Font loadFontFromResource(String cpPath) {
+    try (InputStream is = ClassLoader.getSystemResourceAsStream(cpPath)) {
+        if (is == null) {
+            System.err.println("Fonte não encontrada no classpath: " + cpPath);
+            return null;
+        }
+        return Font.createFont(Font.TRUETYPE_FONT, is);
+    } catch (Exception e) {
+        System.err.println("Falha ao carregar fonte: " + cpPath + " -> " + e);
+        return null;
+    }
+}
+
+/**
+ * Registra no runtime as variações básicas da JetBrains Mono embutidas no JAR.
+ */
+private static void registerJetBrainsMono() {
+    String base = "fonts/jetbrainsmono/ttf/";
+    String[] files = new String[]{
+            "JetBrainsMono-Regular.ttf",
+            "JetBrainsMono-Bold.ttf",
+            "JetBrainsMono-Italic.ttf",
+            "JetBrainsMono-BoldItalic.ttf"
+            // pode adicionar mais pesos se copiou todos
+    };
+    GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+    for (String f : files) {
+        Font font = loadFontFromResource(base + f);
+        if (font != null) {
+            try {
+                ge.registerFont(font);
+            } catch (Exception e) {
+                System.err.println("Não foi possível registrar a fonte: " + f + " -> " + e);
+            }
+        }
+    }
+}
+
+/**
+ * Retorna uma fonte pela família se ela realmente estiver disponível.
+ */
+private static Font tryFamily(String family, int style, int sizePt) {
+    Font f = new Font(family, style, sizePt);
+    if (!f.getFamily().equalsIgnoreCase(family)) return null; // quando não existe, vira "Dialog"
+    return f;
 }
