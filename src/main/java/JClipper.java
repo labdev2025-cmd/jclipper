@@ -98,12 +98,12 @@ private static final int MAX_VISIBLE = 20;    // Itens no popup
 /**
  * Largura do popup em pixels.
  */
-private static final int WINDOW_WIDTH = 840;
+private static final int WINDOW_WIDTH = 650;
 
 /**
  * Altura do popup em pixels.
  */
-private static final int WINDOW_HEIGHT = 560;
+private static final int WINDOW_HEIGHT = 540;
 
 /**
  * Tamanho (pt) da fonte base da UI.
