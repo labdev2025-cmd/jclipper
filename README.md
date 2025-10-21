@@ -349,8 +349,7 @@ sh -c '/usr/bin/java -jar /home/daniel/desenvolvimento/temporarios/jclipper.jar 
 
 ## Licença
 
-Defina uma licença para o projeto (ex.: MIT, Apache-2.0, GPL).
-Exemplo de arquivo: `LICENSE` na raiz do repositório.
+Este projeto é licenciado sob a [Licença MIT](LICENSE) — você pode usar, copiar, modificar e distribuir livremente, desde que mantenha o aviso de copyright e esta licença.
 
 ---
 
