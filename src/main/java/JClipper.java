@@ -19,8 +19,7 @@
  *  - Monitor de clipboard (polling): executa num agendador dedicado, compara
  *    o valor anterior para evitar duplicatas causadas por polling.
  *  - UI (Swing): JDialog sem decorações, leve e sempre no topo; renderização
- *    customizada da lista (linha única, tooltip monoespaçado preservando
- *    quebras/indentação).
+ *    customizada da lista (linha única, timestamp humano ao lado).
  *
  *  Threading
  *  ---------
@@ -32,7 +31,6 @@
  *  ---------------------
  *  - O monitor usa polling (POLL_MS) — há um atraso máximo de detecção igual ao
  *    período de polling.
- *  - O histórico guarda tudo em memória (sem persistência em disco).
  *
  *  Execução (exemplos)
  *  -------------------
@@ -121,6 +119,7 @@ private static final int HEADER_FONT_PT = 16; // fonte do cabeçalho
 
 /**
  * Tamanho (pt) da fonte utilizada no tooltip HTML (bloco <pre>/monospace).
+ * (mantido por compat, embora os itens não usem mais tooltip)
  */
 private static final int TOOLTIP_FONT_PT = 13; // fonte do tooltip <pre>
 
@@ -129,6 +128,12 @@ private static final int TOOLTIP_FONT_PT = 13; // fonte do tooltip <pre>
  */
 private static final int LIST_CELL_HEIGHT = 24; // altura da linha da lista
 private static final int WINDOW_ARC = 16; // leve arredondamento
+
+// ======= Persistência & limites =======
+/** Máximo de itens mantidos em memória/arquivo. */
+private static final int MAX_HISTORY = 1000;
+/** Caminho do arquivo de histórico (depende da plataforma). */
+private static final Path HISTORY_FILE = HistoryIO.resolveHistoryFile();
 // ================================================
 
 /**
@@ -165,8 +170,15 @@ void main(String[] args) {
         }
 
         ClipboardHistory history = new ClipboardHistory();
+
+        // carrega histórico persistido (até MAX_HISTORY)
+        HistoryIO.loadInto(history);
+
         ClipboardMonitor monitor = new ClipboardMonitor(history);
         PopupUI popup = new PopupUI(history);
+
+        // salva no desligamento também (extra segurança)
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> HistoryIO.save(history), "history-save-shutdown"));
 
         // Thread para IPC: receber "TOGGLE" e abrir/fechar o popup
         Thread ipcThread = new Thread(() -> runIpcServer(server, popup), "ipc-server");
@@ -359,7 +371,7 @@ static class ClipboardMonitor {
  * <p>Características:</p>
  * <ul>
  *   <li>Utiliza {@link ArrayDeque} para inserção/iteração eficiente (mais novo primeiro);</li>
- *   <li>Sem limite de tamanho artificial (pode crescer indefinidamente);</li>
+ *   <li>Limite definido por {@link #MAX_HISTORY};</li>
  *   <li>Métodos {@code synchronized} para segurança em cenários multi-thread
  *       (polling e UI podem acessar simultaneamente).</li>
  * </ul>
@@ -372,20 +384,41 @@ static class ClipboardHistory {
 
     /**
      * Adiciona um novo texto ao início do deque, carimbando o instante em milissegundos.
+     * Aplica limite e persiste de forma assíncrona.
      *
      * @param text conteúdo textual do clipboard (original, sem transformações).
      */
     synchronized void add(String text) {
         entries.addFirst(new Entry(Instant.now().toEpochMilli(), text));
+        // aplica limite
+        while (entries.size() > MAX_HISTORY) entries.removeLast();
+        // persiste a cada inclusão (arquivo até 1000 linhas)
+        HistoryIO.saveAsync(this);
+    }
+
+    /** Limpa todo o histórico e persiste. */
+    synchronized void clear() {
+        entries.clear();
+        HistoryIO.saveAsync(this);
+    }
+
+    /** Carga inicial (lista em ordem "mais novo primeiro"). */
+    synchronized void bulkLoad(List<Entry> itemsNewestFirst) {
+        entries.clear();
+        // garantir que o primeiro da lista acabe na cabeça (mais novo na cabeça)
+        for (int i = itemsNewestFirst.size() - 1; i >= 0; i--) {
+            entries.addFirst(itemsNewestFirst.get(i));
+        }
+    }
+
+    /** Snapshot para UI/persistência. */
+    synchronized List<Entry> snapshot() {
+        return new ArrayList<>(entries);
     }
 
     /**
      * Filtra as entradas por substring (case-insensitive) e retorna até {@code limit} itens,
      * mantendo a ordem do mais recente para o mais antigo.
-     *
-     * @param query termo de busca; se vazio/nulo, retorna simplesmente os mais recentes.
-     * @param limit máximo de itens a retornar.
-     * @return lista (possivelmente vazia) com as entradas encontradas.
      */
     synchronized List<Entry> latestMatching(String query, int limit) {
         String q = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
@@ -395,19 +428,116 @@ static class ClipboardHistory {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Representa um item do histórico.
-     * <ul>
-     *   <li>{@link #ts}: timestamp epoch em milissegundos do momento da captura;</li>
-     *   <li>{@link #text}: conteúdo textual exatamente como estava no clipboard.</li>
-     * </ul>
-     */
+    /** Item do histórico. */
     record Entry(long ts, String text) {
-
         @Override
         public String toString() {
             return text;
         }
+    }
+}
+
+// ===== Persistência simples do histórico =====
+static class HistoryIO {
+    private static final ExecutorService IO_EXEC =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "history-io");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /** Resolve caminho do arquivo de histórico por SO. */
+    static Path resolveHistoryFile() {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        Path dir;
+        if (os.contains("win")) {
+            String appData = System.getenv("APPDATA");
+            dir = appData != null ? Paths.get(appData, "JClipper") :
+                    Paths.get(System.getProperty("user.home"), "AppData", "Roaming", "JClipper");
+        } else if (os.contains("mac")) {
+            dir = Paths.get(System.getProperty("user.home"), "Library", "Application Support", "JClipper");
+        } else {
+            dir = Paths.get(System.getProperty("user.home"), ".local", "share", "JClipper");
+        }
+        return dir.resolve("history.txt");
+    }
+
+    /** Carrega arquivo para memória (até MAX_HISTORY). */
+    static void loadInto(ClipboardHistory history) {
+        Path f = HISTORY_FILE;
+        if (!Files.exists(f)) return;
+        try {
+            List<String> lines = Files.readAllLines(f, StandardCharsets.UTF_8);
+            List<ClipboardHistory.Entry> items = new ArrayList<>();
+            // Arquivo salvo do mais novo para o mais velho; manter essa ordem
+            for (String line : lines) {
+                int tab = line.indexOf('\t');
+                if (tab <= 0) continue;
+                long ts = Long.parseLong(line.substring(0, tab));
+                String b64 = line.substring(tab + 1);
+                String text = new String(Base64.getDecoder().decode(b64), StandardCharsets.UTF_8);
+                items.add(new ClipboardHistory.Entry(ts, text));
+                if (items.size() >= MAX_HISTORY) break;
+            }
+            history.bulkLoad(items); // mantém "mais novo primeiro"
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Agenda gravação assíncrona. */
+    static void saveAsync(ClipboardHistory history) {
+        IO_EXEC.submit(() -> save(history));
+    }
+
+    /** Grava arquivo de forma segura (tmp + move atômico quando possível). */
+    static void save(ClipboardHistory history) {
+        try {
+            Files.createDirectories(HISTORY_FILE.getParent());
+            List<ClipboardHistory.Entry> items = history.snapshot(); // mais novo primeiro
+            StringBuilder sb = new StringBuilder(items.size() * 64);
+            for (ClipboardHistory.Entry e : items) {
+                String b64 = Base64.getEncoder().encodeToString(e.text().getBytes(StandardCharsets.UTF_8));
+                sb.append(e.ts()).append('\t').append(b64).append('\n');
+            }
+            Path tmp = HISTORY_FILE.resolveSibling(HISTORY_FILE.getFileName() + ".tmp");
+            Files.writeString(tmp, sb.toString(), StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            try {
+                Files.move(tmp, HISTORY_FILE, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ex) {
+                Files.move(tmp, HISTORY_FILE, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+}
+
+// ===== Conversor de timestamp "humano" em pt-BR =====
+static class TimeFmt {
+    private static final Locale PT = new Locale("pt", "BR");
+    private static final DateTimeFormatter HM = DateTimeFormatter.ofPattern("HH:mm", PT);
+    private static final DateTimeFormatter DDMMDotHM = DateTimeFormatter.ofPattern("dd/MM HH:mm", PT);
+
+    static String friendly(long ts) {
+        ZoneId zone = ZoneId.systemDefault();
+        ZonedDateTime t = Instant.ofEpochMilli(ts).atZone(zone);
+        ZonedDateTime now = ZonedDateTime.now(zone);
+
+        Duration d = Duration.between(t, now);
+        long sec = Math.max(0, d.getSeconds());
+
+        if (sec < 45) return "agora";
+        if (sec < 90) return "há 1 minuto";
+        long min = sec / 60;
+        if (min < 45) return "há " + min + " minutos";
+        if (min < 90) return "há 1 hora";
+
+        // Mesmo dia?
+        if (t.toLocalDate().equals(now.toLocalDate())) return "hoje " + t.format(HM);
+        if (t.toLocalDate().plusDays(1).equals(now.toLocalDate())) return "ontem " + t.format(HM);
+
+        // Fallback simples
+        return t.format(DDMMDotHM);
     }
 }
 
@@ -421,8 +551,9 @@ static class ClipboardHistory {
  *   <li>Abre próximo ao cursor do mouse;</li>
  *   <li>Fecha ao perder foco ou ao pressionar ESC;</li>
  *   <li>ENTER copia o item selecionado e fecha;</li>
- *   <li>Lista com linha única por item, tooltip em HTML monoespaçado preservando formatação;</li>
- *   <li>Busca reativa (DocumentListener) sobre o histórico.</li>
+ *   <li>Lista com linha única por item e timestamp amigável à direita;</li>
+ *   <li>Busca reativa (DocumentListener) sobre o histórico;</li>
+ *   <li>Botões "Limpar busca" e "Limpar histórico".</li>
  * </ul>
  */
 static class PopupUI {
@@ -433,9 +564,13 @@ static class PopupUI {
     private final JList<ClipboardHistory.Entry> list;
     private final DefaultListModel<ClipboardHistory.Entry> listModel;
 
-    // [ADD] elementos de UI para "nenhuma correspondência"
+    // elementos de UI para "nenhuma correspondência"
     private final JLabel noMatchLabel;
     private final Color defaultSearchFg;
+
+    // botões extras
+    private final JButton clearSearchBtn;
+    private final JButton clearHistoryBtn;
 
     /**
      * Constrói toda a hierarquia de componentes do popup e configura
@@ -467,7 +602,7 @@ static class PopupUI {
         JPanel content = new JPanel(new BorderLayout(0, 8));
         content.setBorder(new EmptyBorder(14, 14, 14, 14));
 
-        // ===== Topo: Cabeçalho + Caixa de pesquisa =====
+        // ===== Topo: Cabeçalho + Caixa de pesquisa + botões =====
         JLabel header = new JLabel("JClipper - Ferramenta de área de transferência");
         header.putClientProperty(FlatClientProperties.STYLE, "font: 700 " + HEADER_FONT_PT + ";");
         header.setHorizontalAlignment(SwingConstants.LEFT);
@@ -477,17 +612,44 @@ static class PopupUI {
         searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "Pesquisar");
         searchField.setFont(searchField.getFont().deriveFont((float) FONT_BASE_PT));
 
-        // [ADD] cor original e label "nenhuma correspondência"
         defaultSearchFg = searchField.getForeground();
         noMatchLabel = new JLabel("nenhuma correspondência");
         noMatchLabel.setForeground(new Color(0xE53935));
         noMatchLabel.setVisible(false);
 
+        // botão "limpar busca"
+        clearSearchBtn = new JButton("×");
+        clearSearchBtn.setFocusable(false);
+        clearSearchBtn.setToolTipText("Limpar busca");
+        clearSearchBtn.addActionListener(e -> {
+            searchField.setText("");
+            searchField.requestFocusInWindow();
+        });
+        clearSearchBtn.setVisible(false);
+
+        // botão "limpar histórico"
+        clearHistoryBtn = new JButton("Limpar histórico");
+        clearHistoryBtn.setFocusable(false);
+        clearHistoryBtn.addActionListener(e -> {
+            history.clear();
+            refreshList();
+        });
+
+        JPanel searchRow = new JPanel(new BorderLayout(6, 0));
+        searchRow.setOpaque(false);
+        searchRow.add(searchField, BorderLayout.CENTER);
+
+        JPanel rightBtns = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        rightBtns.setOpaque(false);
+        rightBtns.add(clearSearchBtn);
+        rightBtns.add(clearHistoryBtn);
+        searchRow.add(rightBtns, BorderLayout.EAST);
+
         JPanel top = new JPanel(new BorderLayout(0, 6));
         top.setOpaque(false);
         top.add(header, BorderLayout.NORTH);
-        top.add(searchField, BorderLayout.CENTER);
-        top.add(noMatchLabel, BorderLayout.SOUTH); // [ADD] mensagem sob a busca
+        top.add(searchRow, BorderLayout.CENTER);
+        top.add(noMatchLabel, BorderLayout.SOUTH);
         content.add(top, BorderLayout.NORTH);
 
         // ===== Lista (linha única por item + scrollbar horizontal) =====
@@ -500,7 +662,7 @@ static class PopupUI {
         };
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setFixedCellHeight(LIST_CELL_HEIGHT); // linha única
-        list.setCellRenderer(new SingleLineRenderer()); // preview em linha + tooltip preservando formatação
+        list.setCellRenderer(new SingleLineRenderer()); // preview em linha + timestamp (sem tooltip)
 
         JScrollPane scroll = new JScrollPane(list);
         scroll.setBorder(BorderFactory.createEmptyBorder());
@@ -540,21 +702,26 @@ static class PopupUI {
                 KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
                 JComponent.WHEN_IN_FOCUSED_WINDOW);
 
-        // Filtro em tempo real (qualquer modificação no campo de busca recarrega a lista)
+        // Filtro em tempo real (+ mostrar/ocultar botão "limpar busca")
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
-                refreshList();
+                onChange();
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                refreshList();
+                onChange();
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
+                onChange();
+            }
+
+            private void onChange() {
                 refreshList();
+                clearSearchBtn.setVisible(searchField.getText() != null && !searchField.getText().isBlank());
             }
         });
 
@@ -587,9 +754,7 @@ static class PopupUI {
         });
     }
 
-    /**
-     * Oculta o popup sem destruí-lo (mantém o estado para abrir novamente rápido).
-     */
+    /** Oculta o popup sem destruí-lo (mantém estado). */
     void hidePopup() {
         dialog.setVisible(false);
     }
@@ -647,9 +812,6 @@ static class PopupUI {
     /**
      * Descobre os limites do monitor que contém o ponto dado. Se não encontrar
      * explicitamente (caso raro), retorna o monitor padrão.
-     *
-     * @param p ponto (em coordenadas de tela) que serve de referência.
-     * @return {@link Rectangle} com os limites do monitor correspondente.
      */
     private Rectangle getScreenBoundsAt(Point p) {
         GraphicsDevice gd = null;
@@ -668,14 +830,11 @@ static class PopupUI {
     /**
      * Copia o texto do item selecionado (o <em>original</em>, com quebras e tabs)
      * para a área de transferência do sistema e fecha o popup.
-     *
-     * <p>Qualquer exceção ao definir o conteúdo do clipboard é ignorada para
-     * manter a experiência fluida.</p>
      */
     private void copySelectedAndClose() {
         ClipboardHistory.Entry e = list.getSelectedValue();
         if (e == null) return;
-        StringSelection sel = new StringSelection(e.text); // copia o ORIGINAL (com quebras/tabs)
+        StringSelection sel = new StringSelection(e.text()); // copia o ORIGINAL (com quebras/tabs)
         try {
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, sel);
         } catch (Exception ignored) {
@@ -687,18 +846,11 @@ static class PopupUI {
      * Utilidades para gerar visualizações:
      * <ul>
      *   <li><b>toSingleLine</b>: representação compacta (substitui quebras/tabs por símbolos, trunca com reticências);</li>
-     *   <li><b>toHtmlTooltip</b>: HTML seguro (escape básico) com fonte monoespaçada e <code>white-space: pre</code>.</li>
+     *   <li><b>toHtmlTooltip</b>: HTML escapado com fonte monoespaçada (mantido por compatibilidade).</li>
      * </ul>
      */
     static class Preview {
-        /**
-         * Converte o texto para uma linha única, substituindo caracteres de controle
-         * por símbolos visuais e limitando o tamanho.
-         *
-         * @param s        texto original (pode ser nulo).
-         * @param maxChars máximo de caracteres da saída (inclui a reticência quando houver).
-         * @return linha única pronta para exibição na célula.
-         */
+        /** Converte o texto para uma linha única, substituindo controles e limitando tamanho. */
         static String toSingleLine(String s, int maxChars) {
             if (s == null) return "";
             String t = s.replace("\r", "");
@@ -709,48 +861,41 @@ static class PopupUI {
             return t;
         }
 
-        /**
-         * Gera HTML simples para tooltip preservando indentação/novas linhas,
-         * usando fonte monoespaçada.
-         *
-         * @param s texto original (pode ser nulo).
-         * @return HTML com conteúdo escapado ou {@code null} se s for nulo.
-         */
+        /** (não mais usada nos itens) Gera HTML simples para tooltip monoespaçado. */
         static String toHtmlTooltip(String s) {
             if (s == null) return null;
             String esc = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
             return "<html><div style='font-family:\"JetBrains Mono\",monospace; font-size:" + TOOLTIP_FONT_PT + "px; white-space:pre'>"
-                    + esc + "</div></html>"; // prefere JetBrains Mono
+                    + esc + "</div></html>";
         }
     }
 
     /**
      * Renderer que apresenta cada item do histórico em <em>linha única</em>
-     * (com ícone opcional quando o texto original é multi-linha) e tooltip
-     * “formatado” (HTML monoespaçado).
+     * e o timestamp amigável à direita. Sem tooltip de conteúdo.
      */
     static class SingleLineRenderer extends JPanel implements ListCellRenderer<ClipboardHistory.Entry> {
-        private final JLabel lbl;
+        private final JLabel lblText;
+        private final JLabel lblTime;
 
-        /**
-         * Inicializa o painel/label com padding e fonte monoespaçada.
-         */
         SingleLineRenderer() {
-            setLayout(new BorderLayout());
+            setLayout(new BorderLayout(8, 0));
             setBorder(new EmptyBorder(4, 10, 4, 10));
-            lbl = new JLabel();
-            // monoespaçado ajuda a enxergar indentação
+
+            lblText = new JLabel();
             Font mono = tryFamily("JetBrains Mono", Font.PLAIN, FONT_MONO_PT);
             if (mono == null) mono = new Font(Font.MONOSPACED, Font.PLAIN, FONT_MONO_PT);
-            lbl.setFont(mono); // usa JetBrains Mono se registrada
-            lbl.setOpaque(false);
-            add(lbl, BorderLayout.CENTER);
+            lblText.setFont(mono);
+            lblText.setOpaque(false);
+
+            lblTime = new JLabel();
+            lblTime.setFont(lblTime.getFont().deriveFont(Font.PLAIN, Math.max(11f, FONT_MONO_PT - 3f)));
+            lblTime.setForeground(UIManager.getColor("Label.disabledForeground"));
+
+            add(lblText, BorderLayout.CENTER);
+            add(lblTime, BorderLayout.EAST);
         }
 
-        /**
-         * Prepara a célula conforme estado de seleção/foco e conteúdo.
-         * Define também o tooltip (HTML) com o texto original preservado.
-         */
         @Override
         public Component getListCellRendererComponent(
                 JList<? extends ClipboardHistory.Entry> jList,
@@ -759,20 +904,27 @@ static class PopupUI {
                 boolean isSelected,
                 boolean cellHasFocus) {
 
-            String single = Preview.toSingleLine(value.text, 200);
-            lbl.setText(single);
+            String single = Preview.toSingleLine(value.text(), 200);
+            lblText.setText(single);
             // Ícone opcional para textos com múltiplas linhas reais
-            lbl.setIcon((value.text != null && value.text.contains("\n")) ? UIManager.getIcon("FileView.textIcon") : null);
-            setToolTipText(Preview.toHtmlTooltip(value.text));
+            lblText.setIcon((value.text() != null && value.text().contains("\n")) ? UIManager.getIcon("FileView.textIcon") : null);
+
+            // Sem tooltip de conteúdo
+            setToolTipText(null);
+
+            // Timestamp amigável
+            lblTime.setText(TimeFmt.friendly(value.ts()));
 
             if (isSelected) {
                 setBackground(jList.getSelectionBackground());
                 setForeground(jList.getSelectionForeground());
-                lbl.setForeground(jList.getSelectionForeground());
+                lblText.setForeground(jList.getSelectionForeground());
+                lblTime.setForeground(jList.getSelectionForeground());
             } else {
                 setBackground(jList.getBackground());
                 setForeground(jList.getForeground());
-                lbl.setForeground(jList.getForeground());
+                lblText.setForeground(jList.getForeground());
+                lblTime.setForeground(UIManager.getColor("Label.disabledForeground"));
             }
             setOpaque(true);
             return this;
