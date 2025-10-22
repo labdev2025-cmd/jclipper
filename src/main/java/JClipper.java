@@ -617,19 +617,31 @@ static class PopupUI {
         noMatchLabel.setForeground(new Color(0xE53935));
         noMatchLabel.setVisible(false);
 
-        // botão "limpar busca"
-        clearSearchBtn = new JButton("×");
+        // ===== Ícones SVG tema-aware (requer flatlaf-extras no pom) =====
+        boolean dark = com.formdev.flatlaf.FlatLaf.isLafDark();
+        javax.swing.Icon broomIcon  = new com.formdev.flatlaf.extras.FlatSVGIcon(
+                dark ? "icons/clearCash_dark.svg" : "icons/clearCash.svg", 18, 18);
+        javax.swing.Icon removeIcon = new com.formdev.flatlaf.extras.FlatSVGIcon(
+                dark ? "icons/remove_dark.svg"    : "icons/remove.svg",    18, 18);
+
+        // botão "limpar busca" (ícone remove)
+        clearSearchBtn = new JButton(removeIcon);
         clearSearchBtn.setFocusable(false);
         clearSearchBtn.setToolTipText("Limpar busca");
+        clearSearchBtn.putClientProperty(FlatClientProperties.BUTTON_TYPE, "toolBarButton");
+        clearSearchBtn.setMargin(new Insets(3, 7, 3, 7));
         clearSearchBtn.addActionListener(e -> {
             searchField.setText("");
             searchField.requestFocusInWindow();
         });
         clearSearchBtn.setVisible(false);
 
-        // botão "limpar histórico"
-        clearHistoryBtn = new JButton("Limpar histórico");
+        // botão "limpar histórico" (ícone vassoura)
+        clearHistoryBtn = new JButton(broomIcon);
         clearHistoryBtn.setFocusable(false);
+        clearHistoryBtn.setToolTipText("Limpar histórico");
+        clearHistoryBtn.putClientProperty(FlatClientProperties.BUTTON_TYPE, "toolBarButton");
+        clearHistoryBtn.setMargin(new Insets(3, 7, 3, 7));
         clearHistoryBtn.addActionListener(e -> {
             history.clear();
             refreshList();
@@ -704,20 +716,9 @@ static class PopupUI {
 
         // Filtro em tempo real (+ mostrar/ocultar botão "limpar busca")
         searchField.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                onChange();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                onChange();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                onChange();
-            }
+            @Override public void insertUpdate(DocumentEvent e) { onChange(); }
+            @Override public void removeUpdate(DocumentEvent e) { onChange(); }
+            @Override public void changedUpdate(DocumentEvent e) { onChange(); }
 
             private void onChange() {
                 refreshList();
