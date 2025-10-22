@@ -16,8 +16,8 @@
  *  - IPC local (porta TCP em loopback): permite "alternar/mostrar/ocultar" o
  *    popup a partir de uma segunda invocação do executável (flags --toggle/--show).
  *    Somente uma instância principal mantém o servidor IPC ativo.
- *  - Monitor de clipboard (pooling): executa num agendador dedicado, compara
- *    o valor anterior para evitar duplicatas causadas por pooling.
+ *  - Monitor de clipboard (polling): executa num agendador dedicado, compara
+ *    o valor anterior para evitar duplicatas causadas por polling.
  *  - UI (Swing): JDialog sem decorações, leve e sempre no topo; renderização
  *    customizada da lista (linha única, tooltip monoespaçado preservando
  *    quebras/indentação).
@@ -25,13 +25,13 @@
  *  Threading
  *  ---------
  *  - EDT (Event Dispatch Thread): toda a manipulação de UI é feita via EDT.
- *  - Executor dedicado ao pooling do clipboard (single-thread).
+ *  - Executor dedicado ao polling do clipboard (single-thread).
  *  - Thread para o servidor IPC.
  *
  *  Limitações conhecidas
  *  ---------------------
- *  - O monitor usa pooling (POLL_MS) — há um atraso máximo de detecção igual ao
- *    período de pooling.
+ *  - O monitor usa polling (POLL_MS) — há um atraso máximo de detecção igual ao
+ *    período de polling.
  *  - O histórico guarda tudo em memória (sem persistência em disco).
  *
  *  Execução (exemplos)
@@ -83,7 +83,7 @@ import java.util.List;
 private static final int SERVER_PORT = 51515; // IPC local
 
 /**
- * Período (ms) do pooling do clipboard. Valores menores detectam mais rápido, mas consomem mais CPU.
+ * Período (ms) do polling do clipboard. Valores menores detectam mais rápido, mas consomem mais CPU.
  */
 private static final int POLL_MS = 300;       // Monitoração do clipboard
 
@@ -281,7 +281,7 @@ private static void runIpcServer(ServerSocket server, PopupUI popup) {
  * Responsável por inspecionar a área de transferência periodicamente e
  * registrar novos conteúdos de texto no {@link ClipboardHistory}.
  *
- * <p>Evita duplicatas causadas pelo pooling comparando com o último valor visto.</p>
+ * <p>Evita duplicatas causadas pelo polling comparando com o último valor visto.</p>
  */
 static class ClipboardMonitor {
     /**
@@ -294,7 +294,7 @@ static class ClipboardMonitor {
     private final ClipboardHistory history;
     /**
      * Agendador single-thread com thread daemon nomeada "clipboard-poll"
-     * para executar o pooling periódico.
+     * para executar o polling periódico.
      */
     private final ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "clipboard-poll");
@@ -314,7 +314,7 @@ static class ClipboardMonitor {
     }
 
     /**
-     * Inicia o pooling do clipboard com o período definido em {@link #POLL_MS}.
+     * Inicia o polling do clipboard com o período definido em {@link #POLL_MS}.
      * A primeira execução ocorre imediatamente (delay 0).
      */
     void start() {
@@ -322,7 +322,7 @@ static class ClipboardMonitor {
     }
 
     /**
-     * Rotina de pooling:
+     * Rotina de polling:
      * <ol>
      *   <li>Obtém o conteúdo atual do clipboard;</li>
      *   <li>Se for texto e diferente do último visto, adiciona ao histórico;</li>
@@ -338,7 +338,7 @@ static class ClipboardMonitor {
             if (t != null && t.isDataFlavorSupported(DataFlavor.stringFlavor)) {
                 String text = (String) t.getTransferData(DataFlavor.stringFlavor);
                 if (text != null) {
-                    // Evita “falsos repetidos” por pooling – só registra quando o conteúdo mudar
+                    // Evita “falsos repetidos” por polling – só registra quando o conteúdo mudar
                     if (!Objects.equals(text, lastSeen)) {
                         lastSeen = text;
                         history.add(text);
@@ -361,7 +361,7 @@ static class ClipboardMonitor {
  *   <li>Utiliza {@link ArrayDeque} para inserção/iteração eficiente (mais novo primeiro);</li>
  *   <li>Sem limite de tamanho artificial (pode crescer indefinidamente);</li>
  *   <li>Métodos {@code synchronized} para segurança em cenários multi-thread
- *       (pooling e UI podem acessar simultaneamente).</li>
+ *       (polling e UI podem acessar simultaneamente).</li>
  * </ul>
  */
 static class ClipboardHistory {
@@ -433,7 +433,7 @@ static class PopupUI {
     private final JList<ClipboardHistory.Entry> list;
     private final DefaultListModel<ClipboardHistory.Entry> listModel;
 
-    // [ADD] elementos de UI para "nenhuma correspondencia"
+    // [ADD] elementos de UI para "nenhuma correspondência"
     private final JLabel noMatchLabel;
     private final Color defaultSearchFg;
 
@@ -477,9 +477,9 @@ static class PopupUI {
         searchField.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "Pesquisar");
         searchField.setFont(searchField.getFont().deriveFont((float) FONT_BASE_PT));
 
-        // [ADD] cor original e label "nenhuma correspondencia"
+        // [ADD] cor original e label "nenhuma correspondência"
         defaultSearchFg = searchField.getForeground();
-        noMatchLabel = new JLabel("nenhuma correspondencia");
+        noMatchLabel = new JLabel("nenhuma correspondência");
         noMatchLabel.setForeground(new Color(0xE53935));
         noMatchLabel.setVisible(false);
 
@@ -604,7 +604,7 @@ static class PopupUI {
         listModel.clear();
         for (ClipboardHistory.Entry e : data) listModel.addElement(e);
 
-        // atualiza UI de "nenhuma correspondencia"
+        // atualiza UI de "nenhuma correspondência"
         applyNoMatchUI(q, listModel.getSize());
     }
 

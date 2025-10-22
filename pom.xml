@@ -6,7 +6,7 @@
 
     <groupId>io.nexus</groupId>
     <artifactId>Jclipper</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0</version>
 
     <properties>
         <maven.compiler.source>25</maven.compiler.source>
