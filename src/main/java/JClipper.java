@@ -691,8 +691,23 @@ static class PopupUI {
         list.addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) copySelectedAndClose();
-                if (e.getKeyCode() == KeyEvent.VK_ESCAPE) hidePopup();
+                switch (e.getKeyCode()) {
+                    case KeyEvent.VK_ENTER -> copySelectedAndClose();
+                    case KeyEvent.VK_ESCAPE -> hidePopup();
+                    case KeyEvent.VK_BACK_SPACE, KeyEvent.VK_DELETE -> {
+                        focusSearchAndForward(e);
+                        e.consume();
+                    }
+                }
+            }
+
+            @Override
+            public void keyTyped(KeyEvent e) {
+                char ch = e.getKeyChar();
+                if (!e.isControlDown() && !e.isAltDown() && !e.isMetaDown() && !Character.isISOControl(ch)) {
+                    focusSearchAndInsert(ch);
+                    e.consume();
+                }
             }
         });
 
@@ -750,8 +765,11 @@ static class PopupUI {
         positionAtMouse();
         dialog.setVisible(true);
         SwingUtilities.invokeLater(() -> {
-            searchField.requestFocusInWindow();
-            if (!listModel.isEmpty()) list.setSelectedIndex(0);
+            if (listModel.getSize() > 0) {
+                list.setSelectedIndex(0);            // seleciona a primeira linha
+                list.ensureIndexIsVisible(0);
+            }
+            list.requestFocusInWindow();             // foco inicial na lista
         });
     }
 
@@ -939,7 +957,36 @@ static class PopupUI {
         Shape shape = new RoundRectangle2D.Double(0, 0, w, h, WINDOW_ARC, WINDOW_ARC);
         dialog.setShape(shape);
     }
+
+    // ===== Helpers para redirecionar digitação da lista para a busca =====
+
+    private void focusSearchAndInsert(char ch) {
+        searchField.requestFocusInWindow();
+        int pos = Math.max(0, searchField.getCaretPosition());
+        String txt = searchField.getText();
+        if (txt == null) txt = "";
+        StringBuilder sb = new StringBuilder(txt);
+        pos = Math.min(pos, sb.length());
+        sb.insert(pos, ch);
+        searchField.setText(sb.toString());
+        searchField.setCaretPosition(pos + 1);
+    }
+
+    private void focusSearchAndForward(KeyEvent e) {
+        searchField.requestFocusInWindow();
+        KeyEvent copy = new KeyEvent(
+                searchField,
+                e.getID(),
+                e.getWhen(),
+                e.getModifiersEx(),
+                e.getKeyCode(),
+                e.getKeyChar(),
+                e.getKeyLocation()
+        );
+        searchField.dispatchEvent(copy);
+    }
 }
+
 
 // ===== Utilitários para carregar/registrar fontes do classpath =====
 
