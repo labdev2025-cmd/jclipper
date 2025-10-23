@@ -1,9 +1,53 @@
+<p align="center">
+  <img src="src/main/resources/icons/logo/jclipper-logo.png" alt="JClipper Logo" width="320" height="320">
+</p>
+
 # JClipper
 
 Um **gerenciador leve de histórico da área de transferência** (clipboard) para desktop, escrito em Java + Swing com tema **FlatLaf**.
 Monitora o clipboard continuamente, guarda cada novo texto copiado e mostra um **popup pesquisável** (sempre no topo) próximo ao mouse para você localizar e recolar rapidamente qualquer item recente.
 
-> **Observação:** este README foi escrito a partir da classe fornecida e do `pom.xml`. Ele explica como **compilar, executar, empacotar e usar** o aplicativo, além de detalhar arquitetura, configuração e solução de problemas.
+---
+
+## ⚡ Guia Rápido (3 passos)
+
+1. **Obtenha o `jclipper.jar`**
+
+    * **Opção A – Compilar:**
+
+      ```bash
+      mvn -q -DskipTests clean package
+      ```
+
+      O *fat jar* sai em `target/jclipper.jar`.
+    * **Opção B – Release pronta:**
+      Baixe o JAR pré-compilado na página **Releases** do repositório (quando disponível).
+
+2. **Inicie a instância principal (uma vez):**
+
+   ```bash
+   java -jar /caminho/para/jclipper.jar
+   ```
+
+   Isso ativa o servidor IPC local e o monitor do clipboard.
+
+3. **Crie um atalho global do sistema para “alternar” o popup** (recomendado: **SUPER/Windows + V**):
+
+    * O comando de alternância é sempre:
+
+      ```bash
+      java -jar /caminho/para/jclipper.jar --toggle
+      ```
+    * **Linux (exemplo exato que você usa):**
+
+      ```bash
+      sh -c '/minha_pasta/java_25/java -jar "/home/usuario/minha_pasta/jclipper.jar" --toggle'
+      ```
+
+      *Uso assim se você tiver outra maneira?* Sim—veja alternativas mais abaixo (GNOME, KDE/Plasma, wrapper `.desktop`, etc.).
+    * **Windows 11** e **macOS**: veja instruções completas nas seções específicas logo adiante (há várias maneiras, inclusive para tentar **SUPER/Win + V**).
+
+> 💡 Sobre **SUPER/Win + V**: no Windows, essa combinação é **reservada** pelo próprio sistema (abre o histórico nativo). É possível contornar com **AutoHotkey** ou remapeando com **PowerToys**, ou optar por **Win+Shift+V** / **Ctrl+Alt+V**. No Linux/macOS, você pode usar **Super/Command + V** desde que não conflite com outros atalhos.
 
 ---
 
@@ -13,13 +57,17 @@ Monitora o clipboard continuamente, guarda cada novo texto copiado e mostra um *
 * [Requisitos](#requisitos)
 * [Instalação e Build (Maven)](#instalação-e-build-maven)
 * [Execução](#execução)
+* [Criar Atalho Global (Linux/Windows/macOS)](#criar-atalho-global-linuxwindowsmacos)
+
+    * [Linux (GNOME, KDE/Plasma, `.desktop`, alternativas)](#linux)
+    * [Windows 11 (atalho clássico, AutoHotkey, PowerToys)](#windows-11)
+    * [macOS (Shortcuts/Atalhos, Automator)](#macos)
 * [Uso do Popup](#uso-do-popup)
 * [IPC: controlar o popup por linha de comando](#ipc-controlar-o-popup-por-linha-de-comando)
 * [Configuração rápida (constantes fáceis de ajustar)](#configuração-rápida-constantes-fáceis-de-ajustar)
 * [Arquitetura e funcionamento](#arquitetura-e-funcionamento)
 * [Estrutura do código (visão por classe)](#estrutura-do-código-visão-por-classe)
 * [Dicas de produtividade](#dicas-de-produtividade)
-* [Kubuntu (KDE Plasma): Atalho personalizado](#kubuntu-kde-plasma-atalho-personalizado)
 * [Solução de problemas](#solução-de-problemas)
 * [Segurança e privacidade](#segurança-e-privacidade)
 * [Licença](#licença)
@@ -29,13 +77,14 @@ Monitora o clipboard continuamente, guarda cada novo texto copiado e mostra um *
 
 ## Recursos
 
-* ✅ **Histórico automático** do clipboard (texto) em memória, com captura contínua.
+* ✅ **Histórico automático** do clipboard (texto), com captura contínua.
 * ✅ **Popup pesquisável** e leve, posicionado próximo ao cursor.
 * ✅ **Filtro em tempo real** enquanto você digita.
-* ✅ **Copia no ENTER** o item selecionado (texto original, preservando quebras e tabs).
-* ✅ **Fechamento rápido** (ESC ou clique fora).
-* ✅ **Tema moderno (FlatDarkLaf)** e UI com fonte monoespaçada para melhor leitura das prévias.
+* ✅ **ENTER** copia o item selecionado (texto **original**, preservando quebras e tabs).
+* ✅ **Fechamento rápido** (ESC, clique fora).
+* ✅ **Tema moderno (FlatDarkLaf)** e lista com **fonte monoespaçada**.
 * ✅ **IPC local (porta 51515)** para alternar/abrir/fechar o popup a partir de novas invocações do app ou scripts.
+* ✅ **Persistência opcional pronta no código**: histórico salvo em arquivo (veja [Segurança e privacidade](#segurança-e-privacidade)).
 
 ---
 
@@ -43,43 +92,42 @@ Monitora o clipboard continuamente, guarda cada novo texto copiado e mostra um *
 
 * **JDK 25** (conforme `maven.compiler.source/target` no `pom.xml`).
 
-  > Dica: se quiser usar um LTS como Java 21, ajuste essas propriedades no `pom.xml` para `21` e recompile.
+  > Dica: se quiser usar um LTS como **Java 21**, ajuste `<maven.compiler.source>` e `<maven.compiler.target>` para `21` no `pom.xml` e recompile.
 * **Maven 3.9+**
 * Ambiente gráfico (desktop) com acesso ao clipboard do sistema.
 
-Dependência principal (já empacotada no *fat jar* via Shade):
+Dependências empacotadas no *fat jar* (via Shade):
 
-* `com.formdev:flatlaf:${flatlaf.version}` (no POM, `3.6.2`).
+* `com.formdev:flatlaf:3.6.2`
+* `com.formdev:flatlaf-extras:3.6.2`
 
 ---
 
 ## Instalação e Build (Maven)
 
-1. **Clone/baixe** o projeto e garanta o layout padrão Maven:
+Estrutura recomendada:
 
 ```
 src/
   main/
     java/
-      JClipper.java      (classe principal; mainClass = JClipper)
+      JClipper.java
 pom.xml
 ```
 
-2. **Compile e gere o JAR executável (sombrado)**:
+Build:
 
 ```bash
-mvn -q -e -DskipTests package
+mvn -q -DskipTests clean package
 ```
 
-Ao final, o Maven Shade Plugin criará:
+Saída:
 
 ```
 target/jclipper.jar
 ```
 
-Esse JAR inclui todas as dependências e define `Main-Class: JClipper` no manifesto.
-
-> Se preferir um nome com versão, ajuste `<finalName>` no `pom.xml`.
+Esse JAR inclui dependências e `Main-Class: JClipper` no manifesto.
 
 ---
 
@@ -88,63 +136,197 @@ Esse JAR inclui todas as dependências e define `Main-Class: JClipper` no manife
 ### Primeira execução (instância principal)
 
 ```bash
-java -jar target/jclipper.jar
+java -jar /caminho/para/jclipper.jar
 ```
 
-* Sobe a UI, o **servidor IPC** (porta local `51515`) e o **monitor** do clipboard.
-* A janela **não** abre automaticamente; é um utilitário residente.
-  Você pode abrir/alternar o popup via **IPC** (veja abaixo) ou invocando com `--toggle`.
+Isso sobe a UI, inicia o **servidor IPC** (localhost:51515) e o **monitor** do clipboard.
 
-### Alternar popup a partir de uma segunda invocação
+### Alternar popup (a partir de uma segunda invocação)
 
-Se o app já estiver rodando (servidor IPC ativo):
+Se o app já estiver rodando:
 
 ```bash
-java -jar target/jclipper.jar --toggle
+java -jar /caminho/para/jclipper.jar --toggle
 ```
 
-* Envia o comando `TOGGLE` via IPC para a instância principal.
-* Se **não** houver instância rodando, essa chamada inicializará o app e **abrirá** o popup.
+Se **não** houver instância rodando, este comando **inicia** a app e **abre** o popup.
 
-### Outros comandos de execução
+---
 
-* **Mostrar** (sem alternar): `java -jar target/jclipper.jar --show`
-  (equivale a enviar `SHOW` via IPC)
-* **Ocultar** (por IPC — ver exemplos com `nc`/PowerShell): `HIDE`
+## Criar Atalho Global (Linux/Windows/macOS)
+
+A ideia é disparar **sempre o mesmo comando**:
+
+```bash
+java -jar "/caminho/para/jclipper.jar" --toggle
+```
+
+### Linux
+
+#### GNOME (Configurações → Teclado → Atalhos → Atalhos personalizados)
+
+1. **Nome:** `JClipper Toggle`
+2. **Comando:**
+   Se você precisa invocar um Java específico e/ou tem espaços no caminho, **envolva com `sh -c`** (funciona muito bem):
+
+   ```bash
+   sh -c '/minha_pasta/java_25/java -jar "/home/usuario/minha_pasta/jclipper.jar" --toggle'
+   ```
+
+   Alternativas:
+
+    * Se o Java “certo” já está no PATH:
+
+      ```bash
+      sh -c 'java -jar "/home/usuario/minha_pasta/jclipper.jar" --toggle'
+      ```
+    * Usando `$JAVA_HOME`:
+
+      ```bash
+      sh -c '"$JAVA_HOME/bin/java" -jar "/home/usuario/minha_pasta/jclipper.jar" --toggle'
+      ```
+3. **Atalho:** pressione **Super+V** (ou **Super+Shift+V** para evitar conflitos).
+
+> Por que `sh -c`? Alguns desktops precisam do shell para interpretar corretamente aspas, espaços e PATH.
+
+#### KDE Plasma (Kubuntu)
+
+1. **Configurações do Sistema** → **Atalhos** → **Atalhos personalizados**.
+2. **Adicionar** → **Comando/URL**.
+3. **Comando/URL** (use caminhos absolutos):
+
+   ```bash
+   sh -c '/usr/bin/java -jar "/home/usuario/minha_pasta/jclipper.jar" --toggle'
+   ```
+4. Defina o atalho (recomendado **Meta/Super + V**) e aplique.
+
+#### Arquivo `.desktop` (opcional)
+
+Crie `~/.local/share/applications/jclipper-toggle.desktop`:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=JClipper Toggle
+Exec=sh -c '/usr/bin/java -jar "/home/usuario/minha_pasta/jclipper.jar" --toggle'
+Terminal=false
+```
+
+Depois associe um atalho pelo gerenciador de janelas do seu ambiente.
+
+---
+
+### Windows 11
+
+> ⚠️ **SUPER/Win + V** é reservado ao histórico nativo do Windows.
+> Opções:
+>
+> * Usar **Ctrl+Alt+V** (atalho clássico de atalhos do Windows);
+> * Usar **Win+Shift+V** com **AutoHotkey** ou **PowerToys Keyboard Manager**;
+> * Desativar o histórico nativo do Windows (não recomendado para a maioria) e remapear **Win+V** via AHK/PowerToys.
+
+#### Opção A — Atalho clássico (sem apps extras)
+
+1. Clique direito → **Novo** → **Atalho**.
+2. **Destino (Target):**
+
+   ```text
+   "C:\caminho\para\java.exe" -jar "C:\caminho\para\jclipper.jar" --toggle
+   ```
+3. **Propriedades** → **Tecla de atalho (Shortcut key):** `Ctrl+Alt+V`.
+   (O Windows limita a combinação a Ctrl+Alt+letra; não aceita Win/Super aqui.)
+
+Dica: Crie um `.bat` para simplificar:
+
+```bat
+@echo off
+"C:\caminho\para\java.exe" -jar "C:\caminho\para\jclipper.jar" --toggle
+```
+
+Aponte o atalho para esse `.bat`.
+
+#### Opção B — AutoHotkey (para usar **Win+Shift+V** ou tentar **Win+V**)
+
+1. Instale **AutoHotkey v2**.
+2. Crie um script `jclipper.ahk` com o conteúdo:
+
+```ahk
+#Requires AutoHotkey v2
+#SingleInstance Force
+
+; Win+Shift+V
+#+v::{
+    Run '"C:\caminho\para\java.exe" -jar "C:\caminho\para\jclipper.jar" --toggle', , "Hide"
+}
+
+; (Opcional) Tentar Win+V — pode conflitar com o Windows:
+; #v::{
+;     Run '"C:\caminho\para\java.exe" -jar "C:\caminho\para\jclipper.jar" --toggle', , "Hide"
+; }
+```
+
+3. Execute o script (adicione à inicialização do Windows se quiser).
+
+#### Opção C — PowerToys Keyboard Manager
+
+Remapeie uma combinação (por ex. **Win+Shift+V**) para disparar um atalho que chame seu `.bat`.
+Não remapeia diretamente para executar programas, então a abordagem mais prática é: **tecla → atalho** e o **atalho** aponta para o `.bat`.
+
+---
+
+### macOS
+
+#### Opção A — Shortcuts (Atalhos) *com atalho global nativo*
+
+1. Abra **Atalhos** (Shortcuts) → **Todos os Atalhos** → **+** → **Novo Atalho**.
+2. Adicione a ação **Executar Script do Shell** (*Run Shell Script*).
+3. Script (use zsh e caminhos absolutos):
+
+   ```bash
+   /usr/bin/java -jar "/Users/seuusuario/caminho/jclipper.jar" --toggle
+   ```
+4. Clique no ícone de **informações** do atalho e **adicione um Atalho de Teclado** (ex.: **⌘⌥V**).
+5. (Opcional) Marque **Fixar na Barra de Menus** para acesso rápido.
+
+#### Opção B — Automator (Ação Rápida / Quick Action)
+
+1. Abra **Automator** → **Nova Ação Rápida**.
+2. “O fluxo de trabalho recebe” → **não recebe entrada** (“nenhuma entrada”).
+3. Adicione **Executar Shell Script** com:
+
+   ```bash
+   /usr/bin/java -jar "/Users/seuusuario/caminho/jclipper.jar" --toggle
+   ```
+4. Salve como “JClipper Toggle”.
+5. Vá em **Ajustes do Sistema → Teclado → Atalhos → Serviços** (ou **Ações Rápidas**) e atribua um atalho (ex.: **⌘⌥V**).
+
+> Dica: Evite **⌘V** puro (colagem padrão do macOS). **⌘⌥V** ou **⌃⌥⌘V** são boas escolhas.
 
 ---
 
 ## Uso do Popup
 
-* **Abertura**: por `--toggle`/`--show` (ou script/atalho que envie IPC).
-  O popup aparece **próximo ao cursor** e foca a caixa de pesquisa.
-* **Pesquisar**: digite no campo superior; a lista filtra **em tempo real**.
-* **Selecionar e copiar**: use as setas ↑/↓ e pressione **ENTER**.
-  O texto **original** (com quebras e tabs) é colocado no clipboard.
-* **Fechar**:
-
-    * Pressione **ESC**;
-    * ou clique fora da janela (perda de foco).
+* **Abrir**: pelo atalho global (ou com `--toggle` / `--show`).
+* **Pesquisar**: digite; a lista filtra **em tempo real**.
+* **Selecionar e copiar**: setas **↑/↓** e **ENTER** (o texto **original**, com quebras/tabs, vai para o clipboard).
+* **Fechar**: **ESC** ou clique fora da janela.
 * **Visualização**:
 
-    * A lista mostra cada item em **uma linha**, substituindo visualmente:
-
-        * `\n` por `⏎` e `\t` por `⇥` (sem alterar o texto real);
-    * **Tooltip** (passe o mouse) mostra o conteúdo **formatado monoespaçado** preservando linhas/indentação.
+    * Cada item aparece **em uma linha**, substituindo visualmente `\n`→`⏎` e `\t`→`⇥` (o texto real não é alterado).
 
 ---
 
 ## IPC: controlar o popup por linha de comando
 
-O app escuta **localhost:51515**. Comandos aceitos:
+O app escuta **127.0.0.1:51515**. Comandos aceitos:
 
-* `TOGGLE` – alterna visibilidade do popup;
-* `SHOW` – mostra o popup;
-* `HIDE` – oculta o popup.
+* `TOGGLE` – alterna visibilidade do popup
+* `SHOW`   – mostra o popup
+* `HIDE`   – oculta o popup
 
 ### Exemplos
 
-**Linux/macOS** (com `nc`/`netcat`):
+**Linux/macOS (`nc`/`netcat`):**
 
 ```bash
 printf "TOGGLE\n" | nc 127.0.0.1 51515
@@ -152,7 +334,7 @@ printf "SHOW\n"   | nc 127.0.0.1 51515
 printf "HIDE\n"   | nc 127.0.0.1 51515
 ```
 
-**Windows PowerShell**:
+**Windows PowerShell:**
 
 ```powershell
 $client = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 51515)
@@ -162,207 +344,190 @@ $writer.WriteLine("TOGGLE"); $writer.Flush()
 $client.Close()
 ```
 
-> Dica: crie um **atalho de teclado do sistema** que execute `java -jar ... --toggle` para abrir/fechar o popup em qualquer lugar.
-
 ---
 
 ## Configuração rápida (constantes fáceis de ajustar)
 
-Na classe principal (topo do arquivo):
+Na classe principal:
 
 ```java
 // ======= Config gerais =======
-private static final int SERVER_PORT = 51515; // porta IPC local
+private static final int SERVER_PORT = 51515; // IPC local
 private static final int POLL_MS = 300;       // período do monitor do clipboard (ms)
-private static final int MAX_VISIBLE = 20;    // itens máximos exibidos no popup
+private static final int MAX_VISIBLE = 20;    // itens exibidos no popup
 
 // ======= Ajustes visuais =======
-private static final int WINDOW_WIDTH = 840;
-private static final int WINDOW_HEIGHT = 560;
+private static final int WINDOW_WIDTH = 650;
+private static final int WINDOW_HEIGHT = 540;
 
-private static final int FONT_BASE_PT = 14;     // fonte padrão da UI
-private static final int FONT_MONO_PT = 14;     // fonte monoespaçada (lista)
-private static final int HEADER_FONT_PT = 16;   // fonte do cabeçalho
-private static final int TOOLTIP_FONT_PT = 13;  // fonte do tooltip <pre>
-private static final int LIST_CELL_HEIGHT = 24; // altura da linha da lista
+private static final int FONT_BASE_PT   = 14;  // fonte padrão da UI
+private static final int FONT_MONO_PT   = 14;  // fonte monoespaçada (lista)
+private static final int HEADER_FONT_PT = 16;  // fonte do cabeçalho
+private static final int TOOLTIP_FONT_PT = 13; // (mantida p/ compat)
+private static final int LIST_CELL_HEIGHT = 24;
+private static final int WINDOW_ARC = 16;
 ```
 
-* **Responsividade**: reduza `POLL_MS` para capturar mais rápido (consome mais CPU).
-* **Listagem**: aumente `MAX_VISIBLE` para ver mais itens de uma vez.
-* **Estética**: ajuste tamanhos de janela e fontes à sua preferência.
+* **Responsividade:** reduza `POLL_MS` para captar mais rápido (↑ CPU).
+* **Listagem:** aumente `MAX_VISIBLE` para ver mais resultados.
+* **Estética:** ajuste dimensões e fontes conforme seu gosto.
 
 ---
 
 ## Arquitetura e funcionamento
 
-**Visão geral:**
+**UI (Swing + FlatLaf)**
+`JDialog` sem decorações, **sempre no topo**, próximo ao cursor. Campo de busca + `JList` com **renderer** em linha única.
 
-* **UI (Swing + FlatDarkLaf)**:
+**Monitor do clipboard (polling)**
+`ScheduledExecutorService` (single-thread daemon) lendo o clipboard a cada `POLL_MS`. Evita duplicatas comparando com **último valor visto**.
 
-    * `JDialog` **sempre no topo**, **sem decorações**, posicionado próximo ao cursor.
-    * Campo de **pesquisa** + `JList` com renderização própria (linha única + tooltip HTML monoespaçado).
+**Histórico**
+`ArrayDeque<Entry>` (mais novo primeiro). Filtro **case-insensitive** por substring, limitado a `MAX_VISIBLE`.
 
-* **Monitor de clipboard (pooling)**:
+**IPC local**
+`ServerSocket` em `127.0.0.1:SERVER_PORT` aceita `TOGGLE/SHOW/HIDE` e executa ações na UI via `SwingUtilities.invokeLater(...)`.
 
-    * Agendado por `ScheduledExecutorService` (single-thread daemon).
-    * Lê o clipboard do sistema a cada `POLL_MS`.
-    * **Evita duplicatas** de pooling comparando com o último valor visto.
+**Threading**
 
-* **Histórico em memória**:
-
-    * `ArrayDeque<Entry>` (mais novo primeiro), sem limite artificial.
-    * Filtro case-insensitive por **substring** (stream com `limit(MAX_VISIBLE)`).
-
-* **IPC local**:
-
-    * Servidor `ServerSocket` em `127.0.0.1:SERVER_PORT`.
-    * Comandos de texto (`TOGGLE`, `SHOW`, `HIDE`) aplicados na UI via `SwingUtilities.invokeLater(...)`.
-
-**Threading:**
-
-* **EDT**: toda manipulação de componentes Swing.
-* **Thread do IPC**: aceita conexões e repassa comandos para o EDT.
-* **Thread do monitor**: pooling periódico (daemon).
+* **EDT** para tudo da UI;
+* **Thread IPC** para rede local;
+* **Thread do monitor** para polling.
 
 ---
 
 ## Estrutura do código (visão por classe)
 
-* **`JClipper` (classe principal / `main`)**
-
-    * Sobe L&F, tenta iniciar servidor IPC (previne múltiplas instâncias),
-    * Inicia `ClipboardMonitor` e cria `PopupUI`,
-    * Processa `--toggle`/`--show`.
+* **`JClipper` (main)**
+  Sobe L&F, tenta iniciar servidor IPC (evita múltiplas instâncias), inicia `ClipboardMonitor`, cria `PopupUI`, processa `--toggle`/`--show`.
 
 * **`ClipboardMonitor`**
-
-    * Lê `Toolkit.getDefaultToolkit().getSystemClipboard()`,
-    * Quando muda o texto, chama `ClipboardHistory.add(...)`.
+  Lê `Toolkit.getDefaultToolkit().getSystemClipboard()`; quando o texto muda, chama `ClipboardHistory.add(...)`.
 
 * **`ClipboardHistory`**
-
-    * Armazena entradas (`ts`, `text`) em memória,
-    * `latestMatching(query, limit)` retorna os mais recentes filtrados.
+  Armazena (`ts`, `text`) em memória; `latestMatching(query, limit)` retorna os mais recentes filtrados.
 
 * **`PopupUI`**
+  Constrói a janela, trata **ENTER/ESC**, clique fora, filtragem reativa, e copia **o texto original** ao selecionar.
 
-    * Monta o `JDialog` com cabeçalho, campo de busca e lista,
-    * Listeners de teclado/mouse (ENTER copia, ESC fecha, clique fora fecha),
-    * `SingleLineRenderer` mostra preview compacto (+ tooltip completo),
-    * Métodos utilitários de posicionamento (no monitor do cursor).
+* **`HistoryIO`**
+  Resolve o caminho do arquivo do histórico conforme o SO; salva/carrega de forma assíncrona e segura (tmp + move).
+
+* **`TimeFmt`**
+  Converte timestamps para rótulos “amigáveis” em pt-BR (ex.: “agora”, “há 1 minuto”, “hoje 14:03”, etc.).
 
 ---
 
 ## Dicas de produtividade
 
-* **Atalho global do SO**: mapeie um hotkey (ex.: `Ctrl+Shift+V`) para executar
-  `java -jar <caminho>/jclipper.jar --toggle`.
-* **Shell alias**:
-
-    * Bash/Zsh: `alias clipper='java -jar ~/apps/jclipper.jar --toggle'`
-    * PowerShell: `Set-Alias clipper "java -jar C:\apps\jclipper.jar --toggle"`
-* **Pré-visualização fiel**: use o **tooltip** para ver o texto original com quebras e indentação.
-
----
-
-## Kubuntu (KDE Plasma): Atalho personalizado
-
-No Kubuntu (KDE Plasma), um atalho global pode chamar o JClipper usando um **Command/URL**.
-Em algumas configurações, **só funciona corretamente** ao envolver o comando em `sh -c`.
-Exemplo **real** que funcionou:
-
-```bash
-sh -c '/usr/bin/java -jar /home/daniel/desenvolvimento/temporarios/jclipper.jar --toggle'
-```
-
-### Passo a passo
-
-1. **Configurações do Sistema** → **Atalhos** (ou **Teclado** → **Atalhos**).
-2. Vá em **Atalhos personalizados** (*Custom Shortcuts*).
-3. **Adicionar** → **Comando/URL**.
-4. No campo **Comando/URL**, cole:
-
-   ```bash
-   sh -c '/usr/bin/java -jar /caminho/para/jclipper.jar --toggle'
-   ```
-5. Defina o **atalho de teclado** (por exemplo, `Ctrl+Shift+V`) e **aplique**.
-
-### Dicas
-
-* Use **caminhos absolutos** para o `java` e para o `.jar`. Descubra o caminho do Java com:
+* **Atalho global do SO**: mapeie um hotkey (ex.: **Super+V** ou **Win+Shift+V**) para:
 
   ```bash
-  which java
+  java -jar "/caminho/jclipper.jar" --toggle
   ```
+* **Aliases**:
 
-  Se for `/usr/bin/java`, mantenha exatamente assim no comando.
-* Se o caminho do JAR tiver espaços, **mantenha as aspas**:
+  Bash/Zsh:
 
   ```bash
-  sh -c '/usr/bin/java -jar "/home/usuario/minha pasta/jclipper.jar" --toggle'
+  alias jclip='java -jar "/caminho/jclipper.jar" --toggle'
   ```
-* O wrapper `sh -c '...'` garante que o Plasma execute o comando completo com argumentos (algumas versões do KDE falham se apontar direto para o binário sem shell).
+
+  PowerShell:
+
+  ```powershell
+  Set-Alias jclip 'C:\caminho\jclipper-toggle.bat'
+  ```
 
 ---
 
 ## Solução de problemas
 
-* **Nada acontece ao usar `--toggle`**
+* **`--toggle` não faz nada**
 
-    * Verifique se a **instância principal está rodando**.
-      Sem servidor IPC ativo, uma chamada com `--toggle` deve **inicializar** a app e abrir o popup.
-    * Portas bloqueadas: confirme que **127.0.0.1:51515** está livre.
+    * Verifique se a **instância principal** está rodando (rode `java -jar ...` sem flags uma vez).
+    * Confirme que **127.0.0.1:51515** está livre.
 
-* **Conflito de porta 51515**
+* **Conflito na porta 51515**
 
-    * Altere `SERVER_PORT` no código e recompile **ou** encerre o processo que usa a porta.
+    * Mude `SERVER_PORT` no código e recompile, ou encerre o processo que ocupa a porta.
 
-* **Popup fora da tela ou em monitor diferente**
+* **Popup em outro monitor**
 
-    * O posicionamento usa a localização do **mouse**.
-      Traga o ponteiro para o monitor desejado antes de abrir.
+    * O posicionamento usa o **mouse**. Leve o cursor ao monitor desejado antes de abrir.
 
-* **Tema/Fonte estranhos**
+* **Tema/Fonte “estranhos”**
 
-    * O app define `defaultFont` via `UIManager` e propriedades do FlatLaf.
-    * Ajuste as constantes de fonte ou experimente outro L&F.
+    * Ajuste as constantes de fonte ou troque o L&F se preferir.
 
 * **Uso de CPU**
 
-    * Reduza a frequência de pooling (aumente `POLL_MS`) se necessário.
+    * Aumente `POLL_MS` (menos pooling).
 
-* **Compatibilidade Java**
+* **Windows: Win+V não aciona o JClipper**
 
-    * O `pom.xml` define **Java 25**. Se seu ambiente é 17/21, alinhe `maven.compiler.source/target` e recompile.
+    * É atalho do próprio Windows. Use **AutoHotkey**/**PowerToys** (ver seção) ou altere para **Win+Shift+V** / **Ctrl+Alt+V**.
 
 ---
 
 ## Segurança e privacidade
 
-* **Sem rede externa**: apenas escuta **loopback (127.0.0.1)** para IPC.
-* **Somente memória**: o histórico **não é persistido** em disco.
-* **Escopo**: lê apenas o **clipboard do sistema**; não executa ações em segundo plano além do pooling.
+* **Rede:** escuta apenas **loopback (127.0.0.1)** para IPC. Nenhuma conexão externa.
 
-> Para maior privacidade, encerre a aplicação quando não estiver usando (encerra histórico e IPC).
+* **Persistência:** por padrão, o histórico é **persistido** em arquivo texto (uma linha por item em **Base64** + timestamp em ms).
+  Caminhos:
+
+    * **Windows:** `%APPDATA%\JClipper\history.txt`
+    * **macOS:** `~/Library/Application Support/JClipper/history.txt`
+    * **Linux:** `~/.local/share/JClipper/history.txt`
+
+  Você pode **limpar** pelo botão “Limpar histórico” no popup, ou apagar manualmente o arquivo.
+  Se preferir **não persistir**, remova/ajuste as chamadas de `HistoryIO.saveAsync(...)` no código e recompile.
+
+* **Escopo:** lê apenas o **clipboard do sistema**. Não coleta nem envia dados.
 
 ---
 
 ## Licença
 
-Este projeto é licenciado sob a [Licença MIT](LICENSE) — você pode usar, copiar, modificar e distribuir livremente, desde que mantenha o aviso de copyright e esta licença.
+Este projeto é licenciado sob a **Licença MIT** (arquivo `LICENSE`).
+Você pode usar, copiar, modificar e distribuir livremente, mantendo o aviso de copyright.
 
 ---
 
 ## Anexo: `pom.xml` (resumo)
 
-* `maven-compiler-plugin`: `source/target = 25`.
-* `flatlaf` gerenciado em `dependencyManagement` e usado como dependência.
+* `maven-compiler-plugin`: `source/target = 25` (ajuste para 21 se preferir LTS).
+* `dependencyManagement`: FlatLaf/Extras em `3.6.2`.
 * `maven-shade-plugin`:
 
     * Empacota tudo em **`target/jclipper.jar`**
     * Define `Main-Class: JClipper`
-    * Remove `module-info.class` e assinaturas em `META-INF` para evitar conflitos.
+    * Exclui `module-info.class` e assinaturas em `META-INF` para evitar conflitos.
 
 ---
 
-**Pronto!** Compile, rode e vincule um atalho de teclado do seu SO para alternar o popup quando precisar colar algo recente com velocidade ⚡.
+### Apêndice — Outras maneiras de chamar o Java no Linux
+
+Além do `sh -c '/minha_pasta/java_25/java -jar "/home/usuario/minha_pasta/jclipper.jar" --toggle'`, você pode:
+
+1. **Usar `/usr/bin/java`** se a versão correta já estiver instalada globalmente:
+
+```bash
+sh -c '/usr/bin/java -jar "/home/usuario/minha_pasta/jclipper.jar" --toggle'
+```
+
+2. **Referenciar `$JAVA_HOME`** (útil com SDKMAN/ASDF):
+
+```bash
+sh -c '"$JAVA_HOME/bin/java" -jar "/home/usuario/minha_pasta/jclipper.jar" --toggle'
+```
+
+3. **Criar um script wrapper** `~/bin/jclipper-toggle` (não esqueça `chmod +x`):
+
+```bash
+#!/usr/bin/env bash
+exec /minha_pasta/java_25/java -jar "/home/usuario/minha_pasta/jclipper.jar" --toggle
+```
+
+Depois, aponte o atalho para `sh -c '~/bin/jclipper-toggle'`.
